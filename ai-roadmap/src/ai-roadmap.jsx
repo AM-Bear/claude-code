@@ -15,6 +15,7 @@ import { DEFAULT_CATS } from "./data/seeds.js";
 import { GB } from "./components/ui.jsx";
 import BoardCard from "./components/BoardCard.jsx";
 import Canvas from "./Canvas.jsx";
+import Toast from "./components/Toast.jsx";
 
 const STORAGE_KEY = "ai-roadmap-boards";
 
@@ -59,6 +60,7 @@ function setBoardHash(id) {
 // ── App ───────────────────────────────────────────────────────────────────────
 
 export default function App() {
+  const [toast, setToast] = useState(null);
   const [boards, setBoards] = useState(() => {
     const saved = loadBoards();
     if (saved) {
@@ -72,7 +74,11 @@ export default function App() {
 
   // Persist boards to localStorage on every change
   useEffect(() => {
-    saveBoards(boards);
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(boards));
+    } catch {
+      setToast("Auto-save failed: storage quota exceeded. Export your board to avoid losing data.");
+    }
   }, [boards]);
 
   // Keep URL hash in sync with active board
@@ -146,11 +152,14 @@ export default function App() {
   const active = boards.find(b => b.id === activeId);
   if (active) {
     return (
-      <Canvas
-        board={active}
-        onUpdate={fn => upd(activeId, fn)}
-        onBack={() => setActiveId(null)}
-      />
+      <>
+        <Canvas
+          board={active}
+          onUpdate={fn => upd(activeId, fn)}
+          onBack={() => setActiveId(null)}
+        />
+        {toast && <Toast message={toast} onDone={() => setToast(null)} />}
+      </>
     );
   }
 
@@ -194,6 +203,8 @@ export default function App() {
           </div>
         </div>
       </div>
+
+      {toast && <Toast message={toast} onDone={() => setToast(null)} />}
 
       {/* Board grid */}
       <div style={{

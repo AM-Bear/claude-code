@@ -30,6 +30,7 @@ export default function Canvas({ board, onUpdate, onBack }) {
   const [groupDraw, setGroupDraw] = useState(null);
   const [editGroup, setEditGroup] = useState(null);
   const [ctx, setCtx] = useState(null);
+  const [connectCursor, setConnectCursor] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
   const [addPos, setAddPos] = useState(null);
   const [newN, setNewN] = useState({ title: "", cat: "", rank: 1, url: "", notes: "", status: "none" });
@@ -37,6 +38,32 @@ export default function Canvas({ board, onUpdate, onBack }) {
   const svgRef = useRef(null);
   const panRef = useRef(pan); panRef.current = pan;
   const zoomRef = useRef(zoom); zoomRef.current = zoom;
+  const historyRef = useRef([]);
+  const futureRef = useRef([]);
+  const MAX_HISTORY = 60;
+
+  const pushHistory = useCallback(() => {
+    historyRef.current = [...historyRef.current.slice(-MAX_HISTORY + 1), JSON.parse(JSON.stringify(board))];
+    futureRef.current = [];
+  }, [board]);
+
+  const undo = useCallback(() => {
+    if (!historyRef.current.length) return;
+    const past = [...historyRef.current];
+    const prev = past.pop();
+    historyRef.current = past;
+    futureRef.current = [JSON.parse(JSON.stringify(board)), ...futureRef.current].slice(0, MAX_HISTORY);
+    onUpdate(() => prev);
+  }, [board, onUpdate]);
+
+  const redo = useCallback(() => {
+    if (!futureRef.current.length) return;
+    const future = [...futureRef.current];
+    const next = future.shift();
+    futureRef.current = future;
+    historyRef.current = [...historyRef.current, JSON.parse(JSON.stringify(board))].slice(-MAX_HISTORY);
+    onUpdate(() => next);
+  }, [board, onUpdate]);
 
   const { nodes, edges, categories, groups } = board;
   const nmap = useMemo(() => Object.fromEntries(nodes.map(n => [n.id, n])), [nodes]);
@@ -51,8 +78,11 @@ export default function Canvas({ board, onUpdate, onBack }) {
     const kd = e => {
       if (e.target.matches("input,textarea,select")) return;
       if (e.code === "Space") { e.preventDefault(); setSpaceHeld(true); }
-      if (e.code === "Escape") { setCtx(null); setConnecting(null); setSelectBox(null); setGroupMode(false); setGroupDraw(null); }
+      if (e.code === "Escape") { setCtx(null); setConnecting(null); setConnectCursor(null); setMode("select"); setSelectBox(null); setGroupMode(false); setGroupDraw(null); }
+      if ((e.ctrlKey || e.metaKey) && e.code === "KeyZ" && !e.shiftKey) { e.preventDefault(); undo(); return; }
+      if ((e.ctrlKey || e.metaKey) && (e.code === "KeyY" || (e.shiftKey && e.code === "KeyZ"))) { e.preventDefault(); redo(); return; }
       if ((e.code === "Delete" || e.code === "Backspace") && selected.size > 0 && !panel) {
+        pushHistory();
         selected.forEach(id => delNode(id));
         setSelected(new Set());
       }
@@ -61,7 +91,7 @@ export default function Canvas({ board, onUpdate, onBack }) {
     window.addEventListener("keydown", kd);
     window.addEventListener("keyup", ku);
     return () => { window.removeEventListener("keydown", kd); window.removeEventListener("keyup", ku); };
-  }, [selected, panel]);
+  }, [selected, panel, undo, redo, pushHistory]);
 
   // Close context menu on outside click
   useEffect(() => {
@@ -95,7 +125,7 @@ export default function Canvas({ board, onUpdate, onBack }) {
     const cv = toC(e.clientX, e.clientY);
     if (groupMode) { setGroupDraw({ sx: cv.x, sy: cv.y, ex: cv.x, ey: cv.y }); return; }
     if (e.target === svgRef.current || e.target.classList.contains("cbg")) {
-      setSelected(new Set()); setPanel(null); setConnecting(null);
+      setSelected(new Set()); setPanel(null); setConnecting(null); setConnectCursor(null);
       if (spaceHeld) {
         setPanning({ ox: e.clientX - panRef.current.x, oy: e.clientY - panRef.current.y });
       } else {
@@ -108,6 +138,7 @@ export default function Canvas({ board, onUpdate, onBack }) {
     const cv = toC(e.clientX, e.clientY);
     if (groupDraw) { setGroupDraw(p => ({ ...p, ex: cv.x, ey: cv.y })); return; }
     if (panning) { setPan({ x: e.clientX - panning.ox, y: e.clientY - panning.oy }); return; }
+    if (mode === "connect" && connecting) { setConnectCursor({ x: cv.x, y: cv.y }); }
     if (dragMulti) {
       const dx = cv.x - dragMulti.sx, dy = cv.y - dragMulti.sy;
       onUpdate(b => ({
@@ -128,7 +159,7 @@ export default function Canvas({ board, onUpdate, onBack }) {
       return;
     }
     if (selectBox) setSelectBox(p => ({ ...p, ex: cv.x, ey: cv.y }));
-  }, [panning, dragNode, dragGroup, dragMulti, selectBox, groupDraw, panel, toC, onUpdate]);
+  }, [panning, dragNode, dragGroup, dragMulti, selectBox, groupDraw, panel, mode, connecting, toC, onUpdate]);
 
   const onSvgUp = useCallback(e => {
     if (groupDraw) {
@@ -136,6 +167,7 @@ export default function Canvas({ board, onUpdate, onBack }) {
       const w = Math.abs(groupDraw.ex - groupDraw.sx), h = Math.abs(groupDraw.ey - groupDraw.sy);
       if (w > 50 && h > 40) {
         const g = { id: uid(), x, y, w, h, label: "Group", color: "#818cf8" };
+        pushHistory();
         onUpdate(b => ({ ...b, groups: [...b.groups, g] }));
         setEditGroup({ ...g });
       }
@@ -160,7 +192,7 @@ export default function Canvas({ board, onUpdate, onBack }) {
     if (mode === "delete") { delNode(id); return; }
     if (mode === "connect") {
       if (!connecting) setConnecting(id);
-      else if (connecting !== id) { addEdge(connecting, id); setConnecting(null); }
+      else if (connecting !== id) { addEdge(connecting, id); setConnecting(null); setConnectCursor(null); }
       return;
     }
     if (spaceHeld) { setPanning({ ox: e.clientX - panRef.current.x, oy: e.clientY - panRef.current.y }); return; }
@@ -172,10 +204,12 @@ export default function Canvas({ board, onUpdate, onBack }) {
     if (selected.has(id) && selected.size > 1) {
       const no = {}, go = {};
       selected.forEach(sid => { if (nmap[sid]) no[sid] = { x: nmap[sid].x, y: nmap[sid].y }; });
+      pushHistory();
       setDragMulti({ sx: cv.x, sy: cv.y, no, go });
     } else {
       setSelected(new Set([id]));
       setPanel({ ...n });
+      pushHistory();
       setDragNode({ id, ox: cv.x - n.x, oy: cv.y - n.y });
     }
   };
@@ -186,30 +220,35 @@ export default function Canvas({ board, onUpdate, onBack }) {
     if (spaceHeld) { setPanning({ ox: e.clientX - panRef.current.x, oy: e.clientY - panRef.current.y }); return; }
     const cv = toC(e.clientX, e.clientY);
     const g = groups.find(x => x.id === id); if (!g) return;
+    pushHistory();
     setDragGroup({ id, ox: cv.x - g.x, oy: cv.y - g.y });
   };
 
   // Board mutations
   const addEdge = (from, to) => {
     if (edges.find(e => e.from === from && e.to === to)) return;
+    pushHistory();
     onUpdate(b => ({ ...b, edges: [...b.edges, { id: uid(), from, to, label: "" }] }));
   };
-  const delEdge = id => onUpdate(b => ({ ...b, edges: b.edges.filter(e => e.id !== id) }));
+  const delEdge = id => { pushHistory(); onUpdate(b => ({ ...b, edges: b.edges.filter(e => e.id !== id) })); };
   const delNode = id => {
+    pushHistory();
     onUpdate(b => ({ ...b, nodes: b.nodes.filter(n => n.id !== id), edges: b.edges.filter(e => e.from !== id && e.to !== id) }));
     if (panel?.id === id) setPanel(null);
     setSelected(p => { const s = new Set(p); s.delete(id); return s; });
   };
-  const delGroup = id => onUpdate(b => ({ ...b, groups: b.groups.filter(g => g.id !== id) }));
+  const delGroup = id => { pushHistory(); onUpdate(b => ({ ...b, groups: b.groups.filter(g => g.id !== id) })); };
   const dupNode = id => {
     const n = nmap[id]; if (!n) return;
+    pushHistory();
     onUpdate(b => ({ ...b, nodes: [...b.nodes, { ...n, id: uid(), x: n.x + 28, y: n.y + 28 }] }));
   };
-  const disconnAll = id => onUpdate(b => ({ ...b, edges: b.edges.filter(e => e.from !== id && e.to !== id) }));
+  const disconnAll = id => { pushHistory(); onUpdate(b => ({ ...b, edges: b.edges.filter(e => e.from !== id && e.to !== id) })); };
 
   const addNode = () => {
     if (!newN.title.trim()) return;
     const pos = addPos || { x: (-pan.x + 300) / zoom, y: (-pan.y + 200) / zoom };
+    pushHistory();
     onUpdate(b => ({ ...b, nodes: [...b.nodes, { id: uid(), x: pos.x, y: pos.y, ...newN }] }));
     setShowAdd(false);
     setNewN({ title: "", cat: categories[0]?.id || "", rank: 1, url: "", notes: "", status: "none" });
@@ -234,6 +273,7 @@ export default function Canvas({ board, onUpdate, onBack }) {
 
   return (
     <div style={{ width: "100vw", height: "100vh", background: "#080c12", display: "flex", flexDirection: "column", fontFamily: "'IBM Plex Mono',monospace", overflow: "hidden" }}>
+      <style>{`@keyframes pulse-border { 0%,100% { opacity:1; } 50% { opacity:0.3; } }`}</style>
       <Toolbar
         boardName={board.name}
         mode={mode} setMode={setMode}
@@ -246,6 +286,9 @@ export default function Canvas({ board, onUpdate, onBack }) {
         setPan={setPan}
         fitScreen={fitScreen}
         onBack={onBack}
+        onShowHelp={() => setSidebar(true)}
+        onUndo={undo}
+        onRedo={redo}
       />
 
       <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
@@ -345,10 +388,25 @@ export default function Canvas({ board, onUpdate, onBack }) {
               />
             )}
 
+            {/* Rubber-band line (connect mode) */}
+            {mode === "connect" && connecting && connectCursor && nmap[connecting] && (() => {
+              const src = nmap[connecting];
+              return (
+                <line
+                  x1={src.x + NODE_W / 2} y1={src.y + NODE_H / 2}
+                  x2={connectCursor.x} y2={connectCursor.y}
+                  stroke="#818cf8" strokeWidth={1.5 / zoom}
+                  strokeDasharray={`${6 / zoom} ${4 / zoom}`}
+                  strokeOpacity={0.6} pointerEvents="none"
+                />
+              );
+            })()}
+
             {/* Nodes */}
             {nodes.map(node => {
               const col = cc(node.cat), isSel = selected.has(node.id), isPan = panel?.id === node.id;
               const isConn = connecting === node.id, dim = search && !match(node);
+              const isValidTarget = mode === "connect" && connecting && node.id !== connecting;
               const sc = STATUS[node.status || "none"];
               return (
                 <g key={node.id}
@@ -408,11 +466,32 @@ export default function Canvas({ board, onUpdate, onBack }) {
                     <rect x={-3} y={-3} width={NODE_W + 6} height={NODE_H + 6} rx={11}
                       fill="none" stroke="#818cf8" strokeWidth="1.5" strokeDasharray="5 3" />
                   )}
+                  {/* Valid connect target ring */}
+                  {isValidTarget && (
+                    <rect x={-4} y={-4} width={NODE_W + 8} height={NODE_H + 8} rx={12}
+                      fill="none" stroke="#22d3a5" strokeWidth="1.5"
+                      style={{ animation: "pulse-border 1.2s ease-in-out infinite" }} />
+                  )}
                 </g>
               );
             })}
           </g>
         </svg>
+
+        {/* Empty board hint */}
+        {nodes.length === 0 && !showAdd && (
+          <div style={{
+            position: "absolute", inset: 0, pointerEvents: "none",
+            display: "flex", flexDirection: "column",
+            alignItems: "center", justifyContent: "center", gap: 10,
+          }}>
+            <div style={{ fontSize: 42, opacity: 0.06, color: "#e2e8f0" }}>◫</div>
+            <div style={{ color: "#1e2a3a", fontSize: 12, fontWeight: 600 }}>Empty board</div>
+            <div style={{ color: "#111927", fontSize: 10, textAlign: "center", maxWidth: 280, lineHeight: 1.7 }}>
+              Click <span style={{ color: "#22d3a5", fontWeight: 700 }}>+ Node</span> in the toolbar or <span style={{ color: "#64748b" }}>right-click</span> the canvas to add your first node
+            </div>
+          </div>
+        )}
 
         {/* Sidebar */}
         <Sidebar
@@ -438,6 +517,7 @@ export default function Canvas({ board, onUpdate, onBack }) {
                 return updated ? { ...updated } : prev;
               });
             }}
+            onPushHistory={pushHistory}
             onClose={() => { setPanel(null); setSelected(new Set()); }}
             onDelete={delNode}
             onDuplicate={dupNode}
@@ -464,10 +544,10 @@ export default function Canvas({ board, onUpdate, onBack }) {
         }}>
           <span style={{ color: "#111927", fontSize: 9 }}>{nodes.length} nodes · {edges.length} connections</span>
           {selected.size > 1 && <span style={{ color: "#818cf8", fontSize: 9 }}>{selected.size} selected · Delete key to remove</span>}
-          <span style={{ color: "#0f1826", fontSize: 9 }}>
+          <span style={{ color: mode === "connect" ? "#818cf8" : "#0f1826", fontSize: 9 }}>
             {mode === "connect" && connecting
-              ? `Connecting from "${nmap[connecting]?.title?.slice(0, 28)}…" → click target`
-              : mode === "connect" ? "Click source node → click target to draw arrow"
+              ? `① Source: "${nmap[connecting]?.title?.slice(0, 24) || "…"}"  →  ② Click target node`
+              : mode === "connect" ? "① Click source node  →  ② Click target node to draw arrow"
               : mode === "delete" ? "Click node or arrow to delete"
               : groupMode ? "Draw a rectangle to create a group frame"
               : search ? `Showing matches for "${search}"`
@@ -479,7 +559,9 @@ export default function Canvas({ board, onUpdate, onBack }) {
         {ctx && (
           <div
             style={{
-              position: "fixed", left: ctx.x, top: ctx.y,
+              position: "fixed",
+              left: Math.min(ctx.x, window.innerWidth - 185),
+              top: Math.min(ctx.y, window.innerHeight - 130),
               background: "#0a0e18", border: "1px solid #111927", borderRadius: 8,
               padding: 5, zIndex: 100, minWidth: 175, boxShadow: "0 8px 32px rgba(0,0,0,.7)",
             }}
@@ -511,8 +593,16 @@ export default function Canvas({ board, onUpdate, onBack }) {
           const en = edges.find(e => e.id === editingEdge);
           const a = en && nmap[en.from], b2 = en && nmap[en.to]; if (!a || !b2) return null;
           const { mx, my } = edgeGeom(a.x + NODE_W / 2, a.y + NODE_H / 2, b2.x + NODE_W / 2, b2.y + NODE_H / 2);
+          const svgRect = svgRef.current?.getBoundingClientRect() || { left: 0, top: 0 };
+          const px = svgRect.left + mx * zoom + pan.x;
+          const py = svgRect.top + my * zoom + pan.y;
           return (
-            <div style={{ position: "absolute", left: mx * zoom + pan.x - 65, top: my * zoom + pan.y - 15, zIndex: 50 }}>
+            <div style={{
+              position: "fixed",
+              left: Math.min(px - 65, window.innerWidth - 145),
+              top: Math.max(py - 15, 0),
+              zIndex: 50,
+            }}>
               <input
                 autoFocus
                 value={edgeLabelVal}
@@ -547,6 +637,7 @@ export default function Canvas({ board, onUpdate, onBack }) {
           editGroup={editGroup}
           setEditGroup={setEditGroup}
           onSave={() => {
+            pushHistory();
             onUpdate(b => ({ ...b, groups: b.groups.map(g => g.id === editGroup.id ? { ...editGroup } : g) }));
             setEditGroup(null);
           }}

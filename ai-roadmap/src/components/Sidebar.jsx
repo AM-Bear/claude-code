@@ -87,6 +87,10 @@ export default function Sidebar({ open, onToggle, categories, onUpdate }) {
                 ["Drag empty area", "Selection box"],
                 ["Hover arrow", "✕ button appears"],
                 ["Del key", "Remove selected"],
+                ["Ctrl + Z", "Undo"],
+                ["Ctrl + Y", "Redo"],
+                ["Ctrl + Shift + Z", "Redo (alt)"],
+                ["Esc", "Cancel / Select mode"],
               ].map(([k, v]) => (
                 <div key={k} style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
                   <span style={{ color: "#334155", fontSize: 9, fontWeight: 600 }}>{k}</span>

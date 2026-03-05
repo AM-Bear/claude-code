@@ -1,12 +1,14 @@
 import { STATUS, FI } from "../constants.js";
 import { F } from "./ui.jsx";
 
-export default function NodePanel({ panel, categories, edges, nmap, onUpdate, onClose, onDelete, onDuplicate, onDelEdge }) {
+export default function NodePanel({ panel, categories, edges, nmap, onUpdate, onClose, onDelete, onDuplicate, onDelEdge, onPushHistory }) {
   const cc = id => categories.find(c => c.id === id)?.color || "#64748b";
-  const updNode = (f, v) => {
+  const updNode = (f, v, immediate = false) => {
     if (!panel) return;
+    if (immediate) onPushHistory?.();
     onUpdate(b => ({ ...b, nodes: b.nodes.map(n => n.id === panel.id ? { ...n, [f]: v } : n) }));
   };
+  const pushOnBlur = () => onPushHistory?.();
 
   return (
     <div style={{
@@ -33,6 +35,7 @@ export default function NodePanel({ panel, categories, edges, nmap, onUpdate, on
         <F label="Title">
           <input
             value={panel.title}
+            onFocus={pushOnBlur}
             onChange={e => updNode("title", e.target.value)}
             style={{ ...FI, width: "100%" }}
           />
@@ -40,14 +43,14 @@ export default function NodePanel({ panel, categories, edges, nmap, onUpdate, on
 
         <div style={{ display: "flex", gap: 7 }}>
           <F label="Category" s={{ flex: 1 }}>
-            <select value={panel.cat} onChange={e => updNode("cat", e.target.value)} style={{ ...FI, width: "100%" }}>
+            <select value={panel.cat} onChange={e => updNode("cat", e.target.value, true)} style={{ ...FI, width: "100%" }}>
               {categories.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
             </select>
           </F>
           <F label="Rank" s={{ width: 60 }}>
             <input
               type="number" min={1} max={10} value={panel.rank}
-              onChange={e => updNode("rank", Number(e.target.value))}
+              onChange={e => updNode("rank", Number(e.target.value), true)}
               style={{ ...FI, width: "100%" }}
             />
           </F>
@@ -58,7 +61,7 @@ export default function NodePanel({ panel, categories, edges, nmap, onUpdate, on
             {Object.entries(STATUS).map(([k, v]) => (
               <button
                 key={k}
-                onClick={() => updNode("status", k)}
+                onClick={() => updNode("status", k, true)}
                 style={{
                   flex: 1, padding: "4px 0", borderRadius: 4, border: "1px solid", cursor: "pointer",
                   borderColor: panel.status === k ? v.dot : "#111927",
@@ -77,6 +80,7 @@ export default function NodePanel({ panel, categories, edges, nmap, onUpdate, on
           <div style={{ display: "flex", gap: 5 }}>
             <input
               value={panel.url}
+              onFocus={pushOnBlur}
               onChange={e => updNode("url", e.target.value)}
               style={{ ...FI, flex: 1 }}
               placeholder="https://"
@@ -96,6 +100,7 @@ export default function NodePanel({ panel, categories, edges, nmap, onUpdate, on
         <F label="Notes / Build Task">
           <textarea
             value={panel.notes}
+            onFocus={pushOnBlur}
             onChange={e => updNode("notes", e.target.value)}
             rows={9}
             style={{ ...FI, width: "100%", resize: "vertical", minHeight: 160, lineHeight: 1.6 }}
@@ -122,7 +127,7 @@ export default function NodePanel({ panel, categories, edges, nmap, onUpdate, on
                     {other?.title || oId}
                   </span>
                   <button
-                    onClick={() => onDelEdge(e.id)}
+                    onClick={() => { onPushHistory?.(); onDelEdge(e.id); }}
                     style={{ background: "none", border: "none", color: "#1e2a3a", fontSize: 10, padding: "1px 3px", cursor: "pointer" }}
                     title="Remove"
                   >

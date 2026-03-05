@@ -4,7 +4,8 @@ export default function Toolbar({
   boardName, mode, setMode, setConnecting,
   categories, onAddNode, groupMode, setGroupMode,
   search, setSearch,
-  zoom, setZoom, setPan, fitScreen, onBack,
+  zoom, setZoom, setPan, fitScreen, onBack, onShowHelp,
+  onUndo, onRedo,
 }) {
   return (
     <div style={{
@@ -34,6 +35,11 @@ export default function Toolbar({
 
       <div style={{ width: 1, height: 18, background: "#111927" }} />
 
+      <button onClick={onUndo} title="Undo (Ctrl+Z)" style={{ ...TB, cursor: "pointer" }}>↩</button>
+      <button onClick={onRedo} title="Redo (Ctrl+Y)" style={{ ...TB, cursor: "pointer" }}>↪</button>
+
+      <div style={{ width: 1, height: 18, background: "#111927" }} />
+
       {[
         { id: "select",  icon: "↖", label: "Select"  },
         { id: "connect", icon: "→", label: "Connect" },
@@ -41,6 +47,7 @@ export default function Toolbar({
       ].map(m => (
         <button
           key={m.id}
+          title={m.label}
           onClick={() => { setMode(m.id); setConnecting(null); }}
           style={{
             padding: "3px 10px", borderRadius: 5, border: "1px solid", cursor: "pointer",
@@ -79,6 +86,17 @@ export default function Toolbar({
         ▭ Group
       </button>
 
+      <button
+        onClick={onShowHelp}
+        title="Keyboard shortcuts"
+        style={{
+          padding: "3px 8px", borderRadius: 5, border: "1px solid #111927",
+          background: "transparent", color: "#334155", fontSize: 10, cursor: "pointer",
+        }}
+      >
+        ?
+      </button>
+
       <div style={{ flex: 1 }} />
 
       <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
@@ -104,9 +122,9 @@ export default function Toolbar({
       </div>
 
       <button onClick={fitScreen} title="Fit all nodes" style={{ ...TB, cursor: "pointer" }}>⊞</button>
-      <button onClick={() => setZoom(z => Math.min(3, z * 1.15))} style={{ ...TB, cursor: "pointer" }}>+</button>
+      <button onClick={() => setZoom(z => Math.min(3, z * 1.15))} title="Zoom in" style={{ ...TB, cursor: "pointer" }}>+</button>
       <span style={{ color: "#1e2a3a", fontSize: 9, minWidth: 32, textAlign: "center" }}>{Math.round(zoom * 100)}%</span>
-      <button onClick={() => setZoom(z => Math.max(0.12, z * 0.87))} style={{ ...TB, cursor: "pointer" }}>−</button>
+      <button onClick={() => setZoom(z => Math.max(0.12, z * 0.87))} title="Zoom out" style={{ ...TB, cursor: "pointer" }}>−</button>
       <button onClick={() => { setZoom(0.55); setPan({ x: 40, y: 40 }); }} title="Reset" style={{ ...TB, cursor: "pointer" }}>⌂</button>
     </div>
   );
